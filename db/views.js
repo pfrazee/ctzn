@@ -7,7 +7,7 @@ import { fetchUserId } from '../lib/network.js'
 import * as dbGetters from './getters.js'
 import * as schemas from '../lib/schemas.js'
 import * as errors from '../lib/errors.js'
-import { listHomeFeed, listDbmethodFeed } from './feed-getters.js'
+import { listHomeFeed, listDbmethodFeed, listFollowsOnlyFeed } from './feed-getters.js'
 import { fetchNotications, countNotications, dbGet, fetchItemClass, fetchReactions, addPrefixToRangeOpts } from './util.js'
 
 const DEFAULT_USER_AVATAR_PATH = path.join(path.dirname(fileURLToPath(import.meta.url)), '..', 'frontend', 'static', 'img', 'default-user-avatar.jpg')
@@ -178,6 +178,9 @@ export function setup () {
   })
 
   define('ctzn.network/feed-view', async (auth, opts) => {
+    if (!!opts.followOnly) {
+      return {feed: await listFollowsOnlyFeed(opts, auth)}
+    }
     return {feed: await listHomeFeed(opts, auth)}
   })
 

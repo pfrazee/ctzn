@@ -6,6 +6,51 @@ import * as errors from '../lib/errors.js'
 
 const lexintEncoder = lexint('hex')
 
+export async function listFollowsOnlyFeed (opts, auth) {
+  opts = opts && typeof opts === 'object' ? opts : {}
+  opts.lt = opts.lt && typeof opts.lt === 'string' ? opts.lt : lexintEncoder.encode(Date.now())
+
+  if (!auth) throw new errors.SessionError()
+  const publicDb = publicDbs.get(auth.userId)
+  if (!publicDb) throw new errors.NotFoundError('User database not found')
+
+  let followEntries = await publicDb.follows.list()
+  followEntries.unshift({value: {subject: auth}})
+  const sourceDbs = followEntries.map(f => ({db: publicDbs.get(f.value.subject.userId)}))
+
+  const cursors = sourceDbs.map(({db}) => {
+    if (!db) return undefined
+    if (db.dbType === 'ctzn.network/public-citizen-db') {
+      let res = db.posts.cursorRead({lt: opts?.lt, reverse: true, wait: false})
+      return res
+    } 
+   })
+
+  const postEntries = []
+  const authorsCache = {}
+  const limit = Math.min(opts?.limit || 99, 100)
+  const mergedCursor = mergeCursors(cursors)
+  for await (let [db, entry] of mergedCursor) {
+    if (entry.value.community) {
+      continue // filter out community posts by followed users
+    }
+    if (!entry) {
+      continue // entry not found
+    }
+    entry.url = constructEntryUrl(db.url, 'ctzn.network/post', entry.key)
+    entry.author = await fetchAuthor(db.userId, authorsCache)
+    entry.reactions = (await fetchReactions(entry)).reactions
+    entry.replyCount = await fetchReplyCount(entry)
+    entry.relatedItemTransfers = await fetchRelatedItemTransfers(entry)
+    postEntries.push(entry)
+    if (postEntries.length >= limit) {
+      break
+    }
+  }
+
+  return postEntries
+}
+
 export async function listHomeFeed (opts, auth) {
   opts = opts && typeof opts === 'object' ? opts : {}
   opts.lt = opts.lt && typeof opts.lt === 'string' ? opts.lt : lexintEncoder.encode(Date.now())
